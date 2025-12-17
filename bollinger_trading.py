@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import time
+import json
+import os
 from curl_cffi import requests as curl_requests
 
 
@@ -12,7 +14,7 @@ class BollingerBandTrading:
     """
 
     def __init__(self, symbol, sma_period=20, std_multiplier=2, check_interval='1h',
-                 verify_ssl=True, use_proxy=True):
+                 verify_ssl=True, use_proxy=True, save_dir='./trading_data'):
         """
         Parameters:
         -----------
@@ -28,6 +30,8 @@ class BollingerBandTrading:
             SSL 인증서 검증 여부
         use_proxy : bool
             프록시 사용 여부
+        save_dir : str
+            데이터 저장 디렉토리 (기본값: './trading_data')
         """
         self.symbol = symbol
         self.sma_period = sma_period
@@ -35,13 +39,26 @@ class BollingerBandTrading:
         self.check_interval = check_interval
         self.verify_ssl = verify_ssl
         self.use_proxy = use_proxy
+        self.save_dir = save_dir
+
+        # 저장 디렉토리 생성
+        os.makedirs(self.save_dir, exist_ok=True)
+
+        # JSON 파일 경로 설정
+        safe_symbol = symbol.replace('=', '_').replace('/', '_')
+        self.position_file = os.path.join(self.save_dir, f'{safe_symbol}_position.json')
+        self.history_file = os.path.join(self.save_dir, f'{safe_symbol}_history.json')
 
         # 포지션 상태: None, 'LONG', 'SHORT'
         self.position = None
         self.entry_price = None
+        self.entry_time = None
 
         # curl_cffi 세션 생성
         self._setup_session()
+
+        # 저장된 포지션 로드
+        self._load_position()
 
     def _setup_session(self):
         """yfinance용 세션 설정"""
@@ -64,6 +81,62 @@ class BollingerBandTrading:
 
         if not self.verify_ssl:
             self.session.verify = False
+
+    def _load_position(self):
+        """저장된 포지션 상태 로드"""
+        try:
+            if os.path.exists(self.position_file):
+                with open(self.position_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.position = data.get('position')
+                    self.entry_price = data.get('entry_price')
+                    self.entry_time = data.get('entry_time')
+                    print(f"\n✅ 저장된 포지션 로드: {self.position or '없음'}")
+                    if self.position:
+                        print(f"   진입 가격: ${self.entry_price:.2f}")
+                        print(f"   진입 시간: {self.entry_time}")
+        except Exception as e:
+            print(f"⚠️ 포지션 로드 오류: {e}")
+
+    def _save_position(self):
+        """현재 포지션 상태 저장"""
+        try:
+            data = {
+                'symbol': self.symbol,
+                'position': self.position,
+                'entry_price': self.entry_price,
+                'entry_time': self.entry_time,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            with open(self.position_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️ 포지션 저장 오류: {e}")
+
+    def _add_to_history(self, action, price, **kwargs):
+        """거래 히스토리 추가"""
+        try:
+            # 기존 히스토리 로드
+            history = []
+            if os.path.exists(self.history_file):
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    history = json.load(f)
+
+            # 새 거래 기록 추가
+            trade = {
+                'symbol': self.symbol,
+                'action': action,
+                'price': price,
+                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                **kwargs
+            }
+            history.append(trade)
+
+            # 히스토리 저장
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(history, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️ 히스토리 저장 오류: {e}")
 
     def calculate_bollinger_bands(self, df):
         """
@@ -144,6 +217,8 @@ class BollingerBandTrading:
             'LONG_ENTRY', 'SHORT_ENTRY', 'LONG_EXIT', 'SHORT_EXIT', None
         """
         signal = None
+        old_position = self.position
+        old_entry_price = self.entry_price
 
         # 진입 시그널
         if self.position is None:
@@ -151,23 +226,84 @@ class BollingerBandTrading:
                 signal = 'LONG_ENTRY'
                 self.position = 'LONG'
                 self.entry_price = current_price
+                self.entry_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                # 포지션 저장 및 히스토리 기록
+                self._save_position()
+                self._add_to_history(
+                    action='LONG_ENTRY',
+                    price=current_price,
+                    upper_band=upper_band,
+                    middle_band=middle_band,
+                    lower_band=lower_band
+                )
+
             elif current_price < lower_band:
                 signal = 'SHORT_ENTRY'
                 self.position = 'SHORT'
                 self.entry_price = current_price
+                self.entry_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                # 포지션 저장 및 히스토리 기록
+                self._save_position()
+                self._add_to_history(
+                    action='SHORT_ENTRY',
+                    price=current_price,
+                    upper_band=upper_band,
+                    middle_band=middle_band,
+                    lower_band=lower_band
+                )
 
         # 청산 시그널
         elif self.position == 'LONG':
             if current_price < middle_band:
                 signal = 'LONG_EXIT'
+                pnl = current_price - self.entry_price
+                pnl_pct = (pnl / self.entry_price) * 100
+
+                # 히스토리 기록 (포지션 초기화 전에)
+                self._add_to_history(
+                    action='LONG_EXIT',
+                    price=current_price,
+                    entry_price=self.entry_price,
+                    pnl=pnl,
+                    pnl_pct=pnl_pct,
+                    upper_band=upper_band,
+                    middle_band=middle_band,
+                    lower_band=lower_band
+                )
+
                 self.position = None
                 self.entry_price = None
+                self.entry_time = None
+
+                # 포지션 저장
+                self._save_position()
 
         elif self.position == 'SHORT':
             if current_price > middle_band:
                 signal = 'SHORT_EXIT'
+                pnl = self.entry_price - current_price
+                pnl_pct = (pnl / self.entry_price) * 100
+
+                # 히스토리 기록 (포지션 초기화 전에)
+                self._add_to_history(
+                    action='SHORT_EXIT',
+                    price=current_price,
+                    entry_price=self.entry_price,
+                    pnl=pnl,
+                    pnl_pct=pnl_pct,
+                    upper_band=upper_band,
+                    middle_band=middle_band,
+                    lower_band=lower_band
+                )
+
                 self.position = None
                 self.entry_price = None
+                self.entry_time = None
+
+                # 포지션 저장
+                self._save_position()
 
         return signal
 

@@ -147,6 +147,7 @@ python test_bollinger.py
 | `check_interval` | 체크 주기 | '1h' | '1m', '5m', '1h', '1d' |
 | `verify_ssl` | SSL 인증서 검증 | True | True, False |
 | `use_proxy` | 프록시 사용 | True | True, False |
+| `save_dir` | 데이터 저장 디렉토리 | './trading_data' | './data', './logs' |
 
 ### 다양한 설정 예시
 
@@ -196,6 +197,77 @@ oil_trading = BollingerBandTrading(
    상한선 돌파!
 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔 🔔
 ================================================================================
+```
+
+### 포지션 저장 및 히스토리 기능
+
+트레이딩 시스템은 자동으로 포지션 상태와 거래 히스토리를 JSON 파일로 저장합니다.
+
+#### 자동 저장 기능
+
+- **포지션 상태 저장**: 진입/청산 시 자동으로 현재 포지션을 JSON 파일에 저장
+- **거래 히스토리 기록**: 모든 진입/청산 기록을 시간순으로 저장
+- **프로그램 재시작 시 복원**: 시스템 시작 시 자동으로 이전 포지션 로드
+
+#### 저장 파일 위치
+
+```
+trading_data/
+├── GC_F_position.json      # 금 선물 포지션 상태
+├── GC_F_history.json        # 금 선물 거래 히스토리
+├── SI_F_position.json       # 은 선물 포지션 상태
+├── SI_F_history.json        # 은 선물 거래 히스토리
+└── ...
+```
+
+#### 포지션 파일 형식 (GC_F_position.json)
+
+```json
+{
+  "symbol": "GC=F",
+  "position": "LONG",
+  "entry_price": 2050.5,
+  "entry_time": "2025-12-17 12:00:00",
+  "last_updated": "2025-12-17 12:00:00"
+}
+```
+
+#### 거래 히스토리 형식 (GC_F_history.json)
+
+```json
+[
+  {
+    "symbol": "GC=F",
+    "action": "LONG_ENTRY",
+    "price": 2050.5,
+    "time": "2025-12-17 12:00:00",
+    "upper_band": 2065.3,
+    "middle_band": 2045.0,
+    "lower_band": 2024.7
+  },
+  {
+    "symbol": "GC=F",
+    "action": "LONG_EXIT",
+    "price": 2045.0,
+    "entry_price": 2050.5,
+    "pnl": -5.5,
+    "pnl_pct": -0.27,
+    "time": "2025-12-17 13:00:00",
+    "upper_band": 2060.0,
+    "middle_band": 2045.0,
+    "lower_band": 2030.0
+  }
+]
+```
+
+#### 포지션 복원 예시
+
+프로그램 시작 시 자동으로 저장된 포지션을 로드합니다:
+
+```
+✅ 저장된 포지션 로드: LONG
+   진입 가격: $2050.50
+   진입 시간: 2025-12-17 12:00:00
 ```
 
 ## 주의사항
