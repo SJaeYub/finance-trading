@@ -7,6 +7,7 @@ yfinance를 사용하여 금(Gold), 은(Silver), 원유(Crude Oil) 선물 가격
 - **다양한 시간 단위 지원**: 1분봉, 5분봉, 1시간봉, 1일봉, 주봉, 월봉 등
 - **기간 설정 가능**: 1일, 1개월, 1년 등 원하는 기간 설정
 - **3가지 상품**: 금(GC=F), 은(SI=F), 원유(CL=F) 선물 가격 수집
+- **SSL/프록시 설정**: 네트워크 환경에 맞춰 SSL 검증 및 프록시 사용 제어
 
 ## 설치
 
@@ -32,6 +33,36 @@ print(result)
 # 30분봉 데이터 수집 (최근 1일)
 result = get_futures_data(interval='30m', period='1d')
 print(result)
+```
+
+### SSL 인증서 오류 해결
+
+SSL 인증서 관련 오류가 발생하는 경우:
+
+```python
+# SSL 인증서 검증 비활성화
+result = get_futures_data(interval='1d', period='1mo', verify_ssl=False)
+```
+
+### 프록시 연결 오류 해결
+
+프록시 서버 연결 오류가 발생하는 경우:
+
+```python
+# 프록시 비활성화
+result = get_futures_data(interval='1d', period='1mo', use_proxy=False)
+```
+
+### 모든 옵션 사용
+
+```python
+# SSL 검증 비활성화 + 프록시 비활성화
+result = get_futures_data(
+    interval='1d',
+    period='1mo',
+    verify_ssl=False,
+    use_proxy=False
+)
 ```
 
 ### 지원하는 interval 옵션

@@ -1,7 +1,9 @@
 import yfinance as yf
 import pandas as pd
+from curl_cffi import requests as curl_requests
+import os
 
-def get_futures_data(interval='1d', period='1y'):
+def get_futures_data(interval='1d', period='1y', verify_ssl=True, use_proxy=True):
     """
     선물 가격 데이터를 수집하는 함수
 
@@ -18,6 +20,14 @@ def get_futures_data(interval='1d', period='1y'):
     period : str
         데이터 수집 기간
         - '1d', '5d', '1mo', '3mo', '6mo', '1y' (기본값), '2y', '5y', '10y', 'ytd', 'max'
+
+    verify_ssl : bool
+        SSL 인증서 검증 여부 (기본값: True)
+        SSL 인증서 오류 발생 시 False로 설정
+
+    use_proxy : bool
+        프록시 사용 여부 (기본값: True)
+        프록시 연결 오류 발생 시 False로 설정
     """
     tickers = {
         'Gold': 'GC=F',
@@ -37,14 +47,41 @@ def get_futures_data(interval='1d', period='1y'):
 
     print(f"--- [{interval_display}] 선물 가격 데이터 수집 시작 (기간: {period}) ---\n")
 
+    # SSL 인증서 검증 비활성화 처리
+    if not verify_ssl:
+        # 환경 변수를 통해 SSL 검증 비활성화
+        os.environ['CURL_CA_BUNDLE'] = ''
+        os.environ['REQUESTS_CA_BUNDLE'] = ''
+        os.environ['SSL_CERT_FILE'] = ''
+        print("SSL 인증서 검증이 비활성화되었습니다.")
+
+    # 프록시 비활성화 처리
+    if not use_proxy:
+        os.environ['NO_PROXY'] = '*'
+        os.environ['no_proxy'] = '*'
+        print("프록시가 비활성화되었습니다.")
+
+    print()
+
+    # curl_cffi 세션 생성 (브라우저 모방)
+    proxies = {} if not use_proxy else None
+    try:
+        session = curl_requests.Session(impersonate="chrome", proxies=proxies)
+    except:
+        # impersonate 실패 시 기본 세션 사용
+        session = curl_requests.Session(proxies=proxies)
+
+    if not verify_ssl:
+        session.verify = False
+
     all_data = []
 
     for name, ticker_symbol in tickers.items():
         try:
-            # yfinance가 자체적으로 세션을 관리하도록 함
-            ticker = yf.Ticker(ticker_symbol)
+            # curl_cffi 세션을 사용하여 ticker 생성
+            ticker = yf.Ticker(ticker_symbol, session=session)
 
-            # 3. 지정된 interval과 period로 데이터 가져오기
+            # 지정된 interval과 period로 데이터 가져오기
             df = ticker.history(period=period, interval=interval)
             
             if not df.empty:
@@ -92,8 +129,10 @@ def get_futures_data(interval='1d', period='1y'):
 if __name__ == "__main__":
     # 사용 예시:
     # 1일봉 데이터 (기본값)
+    # SSL 인증서 오류가 발생하면 verify_ssl=False로 설정하세요
+    # 프록시 연결 오류가 발생하면 use_proxy=False로 설정하세요
     print("=" * 60)
-    result_daily = get_futures_data(interval='1d', period='1mo')
+    result_daily = get_futures_data(interval='1d', period='1mo', verify_ssl=False, use_proxy=True)
 
     if not result_daily.empty:
         print("\n--- [일봉] 수집 결과 (상위 5개) ---")
